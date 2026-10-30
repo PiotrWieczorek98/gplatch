@@ -12,7 +12,7 @@ use ksni::menu::{MenuItem, StandardItem};
 use ksni::{Category, Icon, ToolTip, Tray};
 
 const APP_NAME: &str = "gplatch";
-// gpclient writes this once the tunnel is up and removes it on disconnect.
+/// PID file written by gpclient once the tunnel is established and removed on disconnect.
 const GPCLIENT_LOCK: &str = "/run/gpclient.lock";
 const POLL: Duration = Duration::from_secs(1);
 const MAX_LOG_BYTES: u64 = 1_000_000;
@@ -73,7 +73,10 @@ fn auth_args(cfg: &Config) -> Vec<&str> {
     args
 }
 
-// Must stay in step with the command line packaging/49-gplatch.rules allows.
+/// Builds the arguments for the privileged connection.
+///
+/// The resulting command line must match the pattern in `packaging/49-gplatch.rules`;
+/// otherwise polkit falls back to a password prompt.
 fn connect_args(cfg: &Config) -> Vec<&str> {
     let mut args = tls_args(cfg);
     args.extend(["connect", "--cookie-on-stdin"]);
@@ -84,7 +87,9 @@ fn connect_args(cfg: &Config) -> Vec<&str> {
     args
 }
 
-// The comm check keeps a stale lock whose pid got reused from reading as connected.
+/// Reports whether the process named in the lock file is a running gpclient.
+///
+/// Checking the process name guards against a stale lock file whose PID has been reused.
 fn tunnel_up(lock: &Path) -> bool {
     let Ok(pid) = fs::read_to_string(lock) else {
         return false;
@@ -158,7 +163,8 @@ impl Tray for VpnTray {
         Category::Communications
     }
 
-    // Sent as pixels so the icon doesn't depend on the desktop having rescanned its icon themes.
+    // Icons are sent as pixel data because a name lookup can fail until the desktop
+    // refreshes its icon cache, which leaves the tray entry blank after installation.
     fn icon_pixmap(&self) -> Vec<Icon> {
         let data: &[u8] = match self.state {
             State::Off => include_bytes!("../packaging/icons/gplatch-off.rgba"),
@@ -169,7 +175,7 @@ impl Tray for VpnTray {
         data.as_chunks_mut::<4>()
             .0
             .iter_mut()
-            .for_each(|pixel| pixel.rotate_right(1)); // RGBA to ARGB
+            .for_each(|pixel| pixel.rotate_right(1)); // The StatusNotifierItem protocol requires ARGB.
         vec![Icon {
             width: ICON_SIZE,
             height: ICON_SIZE,
@@ -214,12 +220,15 @@ impl Tray for VpnTray {
     }
 }
 
+/// Tracks the processes behind the current connection.
 struct Vpn {
     cfg: Config,
     log_path: PathBuf,
     auth: Option<Child>,
     child: Option<Child>,
+    /// The user requested the shutdown, so the next transition to off raises no alert.
     stopping: bool,
+    /// A cancel arrived before the tunnel was up and must be applied once it is.
     cancel_pending: bool,
 }
 
@@ -240,7 +249,11 @@ impl Vpn {
         Ok(cmd)
     }
 
-    // Login runs as the user; only the tunnel gets root, fed the login result over a pipe.
+    /// Starts the login and the tunnel as a pipeline.
+    ///
+    /// gpauth runs unprivileged and passes its result over a pipe to gpclient, the only
+    /// component that runs as root. Separate process groups keep a terminal Ctrl-C from
+    /// reaching either process and leave the tunnel running if the tray exits.
     fn spawn_connection(&mut self) -> std::io::Result<()> {
         let (_, stderr) = self.log_stdio()?;
         let mut auth = Command::new("gpauth")
@@ -274,9 +287,13 @@ impl Vpn {
         }
     }
 
+    /// Stops the connection at whatever stage it has reached.
+    ///
+    /// gpclient runs as root, so the tray cannot signal it directly. During login, killing
+    /// gpauth closes gpclient's stdin and it exits. With the tunnel up, `gpclient disconnect`
+    /// performs a clean logout. Between those stages, the cancel waits for the tunnel.
     fn disconnect(&mut self) {
         self.stopping = true;
-        // gpclient is root and can't be signalled; losing gpauth ends its stdin, so it exits.
         if let Some(auth) = &mut self.auth {
             let _ = auth.kill();
         }
@@ -310,7 +327,7 @@ impl Vpn {
             .is_some_and(|child| !matches!(child.try_wait(), Ok(None)))
         {
             self.child = None;
-            // Refused by polkit or failed: don't leave a login window that leads nowhere.
+            // Without gpclient the login result has no consumer, so close the login window.
             if let Some(mut auth) = self.auth.take() {
                 let _ = auth.kill();
                 let _ = auth.wait();
@@ -318,6 +335,7 @@ impl Vpn {
         }
     }
 
+    /// Derives the state from the system so tunnels started elsewhere are detected too.
     fn state(&self) -> State {
         if tunnel_up(Path::new(GPCLIENT_LOCK)) {
             State::Connected
@@ -328,6 +346,7 @@ impl Vpn {
         }
     }
 
+    /// Waits up to five seconds, keeping a stuck gpclient from blocking tray shutdown.
     fn wait_for_exit(&mut self) {
         for _ in 0..50 {
             self.reap();
@@ -361,7 +380,6 @@ fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>)
         }
         vpn.reap();
         let state = vpn.state();
-        // Cancelled after login finished: gpclient can only be stopped once its tunnel is up.
         if state == State::Connected && vpn.cancel_pending {
             vpn.cancel_pending = false;
             vpn.disconnect();
@@ -380,9 +398,13 @@ fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>)
     }
 }
 
-// gpclient stops on SIGINT and child processes inherit these settings, so a launcher that
-// blocks or ignores SIGINT would otherwise leave a VPN that can never be disconnected.
+/// Restores default SIGINT handling, which child processes inherit.
+///
+/// `gpclient disconnect` stops the tunnel with SIGINT. If the launcher blocked that signal,
+/// gpclient would inherit the block and never receive the request.
 fn reset_sigint() {
+    // SAFETY: Called first in `main`, before any other thread exists, and `set` is initialized
+    // by `sigemptyset` before use.
     unsafe {
         let mut set: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut set);
@@ -412,7 +434,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Held until exit, so a second autostart or launcher click quits quietly.
+    // The lock is held for the life of the process and enforces a single instance.
     let instance = File::create(dir.join("instance.lock")).expect("config dir is writable");
     if instance.try_lock().is_err() {
         eprintln!("{APP_NAME}: already running");
@@ -436,7 +458,8 @@ fn main() {
         can_connect,
         tx,
     };
-    // Assumed available so a tray started before the panel registers once the panel appears.
+    // At login the tray can start before the panel. Assuming availability makes it
+    // register when the panel appears instead of failing at startup.
     let handle = match tray.assume_sni_available(true).spawn() {
         Ok(handle) => handle,
         Err(err) => {
