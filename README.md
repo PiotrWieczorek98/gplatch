@@ -12,14 +12,22 @@
 
 ## Install
 
-From a copy of this repository, run:
+Download the latest `.pkg.tar.zst` file from the
+[releases page](https://github.com/PiotrWieczorek98/gplatch/releases), then run:
+
+```sh
+sudo pacman -U gplatch-*.pkg.tar.zst
+```
+
+To build it yourself instead, run this from a copy of this repository:
 
 ```sh
 cd packaging
 makepkg -si
 ```
 
-This also installs `globalprotect-openconnect`, which provides the VPN connection.
+Either way, this also installs `globalprotect-openconnect`, which provides the VPN
+connection.
 
 ## Setup
 
