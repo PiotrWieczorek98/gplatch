@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=GPLatch
+Comment=Connect to a GlobalProtect VPN from the system tray
+Exec=gplatch
+Icon=gplatch
+Categories=Network;

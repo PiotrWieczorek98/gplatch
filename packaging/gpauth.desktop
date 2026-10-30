@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=GlobalProtect Login
+Exec=gpauth
+Icon=gplatch
+NoDisplay=true

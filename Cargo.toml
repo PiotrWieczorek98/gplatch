@@ -1,0 +1,11 @@
+[package]
+name = "gplatch"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Free system tray client for GlobalProtect VPNs"
+license = "GPL-3.0-only"
+
+[dependencies]
+ksni = { version = "0.3.7", default-features = false, features = ["blocking", "async-io"] }
+libc = "0.2.191"
