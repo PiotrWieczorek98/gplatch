@@ -1,13 +1,15 @@
 <div align="center">
   <img src="packaging/icons/gplatch.svg" width="64" alt="GPLatch icon">
   <h1>GPLatch</h1>
-  <p>A free system tray client for GlobalProtect VPNs on Arch Linux.</p>
+  <p>A free system tray client for GlobalProtect VPNs on Linux.</p>
 </div>
 
 
 ## Requirements
-- Arch Linux or an Arch-based distribution
-- A desktop with a system tray. KDE Plasma works out of the box.
+- Linux. GPLatch is tested on Arch-based distributions, and packages are only built for
+  those. See [Other distributions](#other-distributions).
+- A desktop with a StatusNotifierItem system tray. KDE Plasma works out of the box. On
+  GNOME, install the AppIndicator extension.
 - Membership of the `wheel` group, to connect without a password prompt
 
 ## Install
@@ -28,6 +30,22 @@ makepkg -si
 
 Either way, this also installs `globalprotect-openconnect`, which provides the VPN
 connection.
+
+### Other distributions
+
+These steps are untested. You need Rust 1.89 or newer, `polkit`, `notify-send`, and
+`globalprotect-openconnect` installed with `gpclient` at `/usr/bin/gpclient`. Then run:
+
+```sh
+cargo build --release
+sudo install -Dm755 target/release/gplatch -t /usr/local/bin
+sudo install -Dm644 packaging/49-gplatch.rules -t /etc/polkit-1/rules.d
+sudo install -Dm644 packaging/gplatch.desktop -t /etc/xdg/autostart
+```
+
+If your distribution has no `wheel` group, such as Debian and Ubuntu, GPLatch asks for
+your password each time. To avoid that, change `wheel` in the installed rule to your admin
+group, such as `sudo`.
 
 ## Setup
 
