@@ -220,6 +220,17 @@ impl Tray for VpnTray {
     }
 }
 
+fn has_exited(child: &mut Option<Child>) -> bool {
+    child
+        .as_mut()
+        .is_some_and(|child| !matches!(child.try_wait(), Ok(None)))
+}
+
+fn stop(mut child: Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Tracks the processes behind the current connection.
 struct Vpn {
     cfg: Config,
@@ -274,8 +285,7 @@ impl Vpn {
                 Ok(())
             }
             Err(err) => {
-                let _ = auth.kill();
-                let _ = auth.wait();
+                stop(auth);
                 Err(err)
             }
         }
@@ -314,23 +324,14 @@ impl Vpn {
     }
 
     fn reap(&mut self) {
-        if self
-            .auth
-            .as_mut()
-            .is_some_and(|auth| !matches!(auth.try_wait(), Ok(None)))
-        {
+        if has_exited(&mut self.auth) {
             self.auth = None;
         }
-        if self
-            .child
-            .as_mut()
-            .is_some_and(|child| !matches!(child.try_wait(), Ok(None)))
-        {
+        if has_exited(&mut self.child) {
             self.child = None;
             // Without gpclient the login result has no consumer, so close the login window.
-            if let Some(mut auth) = self.auth.take() {
-                let _ = auth.kill();
-                let _ = auth.wait();
+            if let Some(auth) = self.auth.take() {
+                stop(auth);
             }
         }
     }
@@ -416,18 +417,6 @@ fn reset_sigint() {
 
 fn main() {
     reset_sigint();
-    let mut portal = None;
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        match (arg.as_str(), args.next()) {
-            ("--portal", Some(value)) => portal = Some(value),
-            _ => {
-                eprintln!("usage: {APP_NAME} [--portal HOST]");
-                std::process::exit(2);
-            }
-        }
-    }
-
     let dir = config_dir();
     if let Err(err) = fs::create_dir_all(&dir) {
         eprintln!("{APP_NAME}: cannot create {}: {err}", dir.display());
@@ -442,8 +431,7 @@ fn main() {
     }
 
     let config_path = dir.join("config.ini");
-    let mut cfg = parse_config(&fs::read_to_string(&config_path).unwrap_or_default());
-    cfg.portal = portal.unwrap_or(cfg.portal);
+    let cfg = parse_config(&fs::read_to_string(&config_path).unwrap_or_default());
     let can_connect = !cfg.portal.is_empty();
     if !can_connect {
         notify(format!(
