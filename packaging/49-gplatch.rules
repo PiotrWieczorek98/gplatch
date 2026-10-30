@@ -1,4 +1,6 @@
-// Passwordless VPN control for the tray, limited to the exact commands it runs.
+// Allows wheel users in an active local session to run the gpclient commands used by
+// GPLatch without a password. Other commands receive the default polkit prompt.
+// The connect pattern must match connect_args() in src/vpn.rs.
 polkit.addRule(function(action, subject) {
     if (action.id != "org.freedesktop.policykit.exec" ||
         action.lookup("program") != "/usr/bin/gpclient" ||

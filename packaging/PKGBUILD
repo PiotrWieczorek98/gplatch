@@ -1,6 +1,6 @@
 pkgname=gplatch
 pkgver=0.1.0
-pkgrel=4
+pkgrel=6
 pkgdesc='Free system tray client for GlobalProtect VPNs, built on gpclient'
 arch=(x86_64)
 license=(GPL-3.0-only)
