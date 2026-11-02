@@ -5,8 +5,9 @@ use std::sync::mpsc::Sender;
 use ksni::menu::{MenuItem, StandardItem};
 use ksni::{Category, Icon, ToolTip, Tray};
 
-use crate::APP_NAME;
+use crate::config::config_dir;
 use crate::vpn::State;
+use crate::{APP_NAME, CONFIG_FILE, LOG_FILE, open};
 
 const ICON_SIZE: i32 = 64;
 
@@ -18,7 +19,19 @@ pub enum Cmd {
 pub struct VpnTray {
     pub state: State,
     pub can_connect: bool,
+    /// Details of the current connection, shown under the status.
+    pub info: Vec<String>,
     pub tx: Sender<Cmd>,
+}
+
+impl VpnTray {
+    fn status(&self) -> &'static str {
+        match self.state {
+            State::Off => "Off",
+            State::Connecting => "Connecting...",
+            State::Connected => "Connected",
+        }
+    }
 }
 
 impl Tray for VpnTray {
@@ -57,13 +70,8 @@ impl Tray for VpnTray {
     }
 
     fn tool_tip(&self) -> ToolTip {
-        let status = match self.state {
-            State::Off => "Off",
-            State::Connecting => "Connecting...",
-            State::Connected => "Connected",
-        };
         ToolTip {
-            title: format!("GPLatch — {status}"),
+            title: format!("GPLatch — {}", self.status()),
             ..Default::default()
         }
     }
@@ -74,11 +82,37 @@ impl Tray for VpnTray {
             State::Connecting => "Cancel",
             State::Connected => "Disconnect",
         };
-        vec![
+        let status = format!("Status: {}", self.status());
+        let mut items: Vec<MenuItem<Self>> = std::iter::once(status)
+            .chain(self.info.iter().cloned())
+            .map(|label| {
+                StandardItem {
+                    label,
+                    enabled: false,
+                    ..Default::default()
+                }
+                .into()
+            })
+            .collect();
+        items.extend([
+            MenuItem::Separator,
             StandardItem {
                 label: label.into(),
                 enabled: self.can_connect || self.state != State::Off,
                 activate: Box::new(|tray: &mut Self| drop(tray.tx.send(Cmd::Toggle))),
+                ..Default::default()
+            }
+            .into(),
+            MenuItem::Separator,
+            StandardItem {
+                label: "Open config".into(),
+                activate: Box::new(|_: &mut Self| open(config_dir().join(CONFIG_FILE))),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "Open log".into(),
+                activate: Box::new(|_: &mut Self| open(config_dir().join(LOG_FILE))),
                 ..Default::default()
             }
             .into(),
@@ -89,7 +123,8 @@ impl Tray for VpnTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        ]);
+        items
     }
 }
 
@@ -105,6 +140,7 @@ mod tests {
             let tray = VpnTray {
                 state,
                 can_connect: true,
+                info: vec![],
                 tx: channel().0,
             };
             assert_eq!(

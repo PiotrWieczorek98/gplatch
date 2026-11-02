@@ -5,10 +5,11 @@ mod tray;
 mod vpn;
 
 use std::fs::{self, File};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ksni::blocking::TrayMethods;
 
@@ -17,7 +18,11 @@ use tray::{Cmd, VpnTray};
 use vpn::{State, Vpn};
 
 const APP_NAME: &str = "gplatch";
+const CONFIG_FILE: &str = "config.ini";
+const LOG_FILE: &str = "gplatch.log";
 const POLL: Duration = Duration::from_secs(1);
+/// How often the connection details refresh while connected.
+const INFO_REFRESH: Duration = Duration::from_secs(60);
 
 fn notify(body: String) {
     thread::spawn(move || {
@@ -30,9 +35,30 @@ fn notify(body: String) {
     });
 }
 
+fn open(path: PathBuf) {
+    thread::spawn(move || {
+        let opened = Command::new("xdg-open").arg(&path).status();
+        if !opened.is_ok_and(|status| status.success()) {
+            notify(format!("Could not open {}", path.display()));
+        }
+    });
+}
+
 fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>) {
+    let refresh = |vpn: &Vpn, state| {
+        let info = if state == State::Connected {
+            vpn.info()
+        } else {
+            vec![]
+        };
+        handle.update(|tray| {
+            tray.state = state;
+            tray.info = info;
+        });
+    };
     let mut last = vpn.state();
-    handle.update(|tray| tray.state = last);
+    refresh(&vpn, last);
+    let mut refreshed = Instant::now();
     if vpn.cfg.connect_on_start && !vpn.cfg.portal.is_empty() && last == State::Off {
         vpn.connect();
     }
@@ -63,8 +89,10 @@ fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>)
             vpn.stopping = false;
             vpn.cancel_pending = false;
         }
-        if state != last {
-            handle.update(|tray| tray.state = state);
+        // Periodic refreshes keep the uptime current and pick up session info logged late.
+        if state != last || (state == State::Connected && refreshed.elapsed() >= INFO_REFRESH) {
+            refresh(&vpn, state);
+            refreshed = Instant::now();
             last = state;
         }
     }
@@ -101,7 +129,7 @@ fn main() {
         return;
     }
 
-    let config_path = dir.join("config.ini");
+    let config_path = dir.join(CONFIG_FILE);
     let cfg = parse_config(&fs::read_to_string(&config_path).unwrap_or_default());
     let can_connect = !cfg.portal.is_empty();
     if !can_connect {
@@ -115,6 +143,7 @@ fn main() {
     let tray = VpnTray {
         state: State::Off,
         can_connect,
+        info: vec![],
         tx,
     };
     // At login the tray can start before the panel. Assuming availability makes it
@@ -127,6 +156,6 @@ fn main() {
         }
     };
 
-    let vpn = Vpn::new(cfg, dir.join("gplatch.log"));
+    let vpn = Vpn::new(cfg, dir.join(LOG_FILE));
     run(vpn, rx, handle);
 }

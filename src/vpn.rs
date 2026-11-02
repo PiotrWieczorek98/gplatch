@@ -78,6 +78,38 @@ fn open_log(path: &Path) -> std::io::Result<File> {
         .open(path)
 }
 
+/// Returns the word that follows the last occurrence of `key`.
+fn word_after<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.rsplit_once(key)?.1.split_whitespace().next()
+}
+
+/// Returns the address the VPN assigned to the tunnel device.
+pub fn tunnel_ip() -> Option<String> {
+    let out = Command::new("ip")
+        .args(["-4", "-o", "addr"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // shortcut: assumes the tunnel device is named tun*, which is openconnect's default.
+    let line = text.lines().find(|line| {
+        line.split_whitespace()
+            .nth(1)
+            .is_some_and(|dev| dev.starts_with("tun"))
+    })?;
+    Some(word_after(line, "inet ")?.split('/').next()?.to_string())
+}
+
+fn hours_minutes(time: Duration) -> String {
+    let mins = time.as_secs() / 60;
+    format!("{}h {:02}m", mins / 60, mins % 60)
+}
+
+/// Reads the local expiry time gpclient logs as `user_expires=<epoch> (<date> <time>, in ...)`.
+fn session_expiry(log: &str) -> Option<&str> {
+    let (_, rest) = log.rsplit_once("user_expires=")?;
+    rest.split_once('(')?.1.split(',').next()
+}
+
 fn has_exited(child: &mut Option<Child>) -> bool {
     child
         .as_mut()
@@ -216,6 +248,25 @@ impl Vpn {
         }
     }
 
+    /// Describes the current tunnel. Call only while connected.
+    pub fn info(&self) -> Vec<String> {
+        let log = fs::read_to_string(&self.log_path).unwrap_or_default();
+        // openconnect logs each server it connects to, and the gateway is the last.
+        let gateway = word_after(&log, "Connected to HTTPS on ").map(|gw| format!("Gateway: {gw}"));
+        let ip = tunnel_ip().map(|ip| format!("IP: {ip}"));
+        // The lock file is written when the tunnel comes up, even if another program started it.
+        let uptime = fs::metadata(GPCLIENT_LOCK)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|since| since.elapsed().ok())
+            .map(|up| format!("Connected for {}", hours_minutes(up)));
+        let expires = session_expiry(&log).map(|at| format!("Session expires {at}"));
+        [gateway, ip, uptime, expires]
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     /// Waits up to five seconds, keeping a stuck gpclient from blocking tray shutdown.
     pub fn wait_for_exit(&mut self) {
         for _ in 0..50 {
@@ -256,6 +307,25 @@ mod tests {
         assert_eq!(
             auth_args(&cfg),
             ["--fix-openssl", "--ignore-tls-errors", "--gateway", "p"]
+        );
+    }
+
+    #[test]
+    fn word_after_takes_the_last_match() {
+        let log = "Connected to HTTPS on portal.x with a\nConnected to HTTPS on gw.x with b\n";
+        assert_eq!(word_after(log, "Connected to HTTPS on "), Some("gw.x"));
+        assert_eq!(word_after("nothing", "src "), None);
+    }
+
+    #[test]
+    fn parses_session_info() {
+        let log = "VPN session info: lifetime_secs=2592000 (30days), user_expires=1796208791 \
+                   (2026-12-02 11:53:11, in 29days 23h 59m 59s), lifetime_warning_prior=1800";
+        assert_eq!(session_expiry(log), Some("2026-12-02 11:53:11"));
+        assert_eq!(session_expiry("no session"), None);
+        assert_eq!(
+            hours_minutes(Duration::from_secs(26 * 3600 + 5 * 60 + 59)),
+            "26h 05m"
         );
     }
 
