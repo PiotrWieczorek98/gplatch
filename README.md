@@ -33,8 +33,9 @@ connection.
 
 ### Other distributions
 
-These steps are untested. You need Rust 1.89 or newer, `polkit`, `notify-send`, and
-`globalprotect-openconnect` installed with `gpclient` at `/usr/bin/gpclient`. Then run:
+These steps are untested. You need Rust 1.89 or newer, `polkit`, `notify-send`, `ip`,
+`xdg-open`, and `globalprotect-openconnect` installed with `gpclient` at
+`/usr/bin/gpclient`. Then run:
 
 ```sh
 cargo build --release
@@ -49,7 +50,8 @@ group, such as `sudo`.
 
 ## Setup
 
-Create `~/.config/gplatch/config.ini` with your VPN address:
+Create `~/.config/gplatch/config.ini` with your VPN address, or choose **Open config** from
+the tray menu to create and open it:
 
 ```ini
 [vpn]
@@ -57,7 +59,7 @@ portal = vpn.example.com
 ```
 
 Then log out and back in, or run `gplatch`. GPLatch starts automatically each time you
-log in.
+log in. To stop that, untick **Start on login** in the tray menu.
 
 ## Usage
 
@@ -66,9 +68,16 @@ Click the tray icon and choose **Connect**, then sign in using the window that o
 While it is connecting, the same menu item changes to **Cancel**. Once you are
 connected, it changes to **Disconnect**. Choosing **Quit** also disconnects the VPN.
 
+The top of the menu shows the connection status. While connected, it also shows the
+gateway, the IP address the VPN assigned you, how long you have been connected, and when
+the session expires.
+
+**Open config** and **Open log** open those files in your default app.
+
 ## Settings
 
-Add any of these to the `[vpn]` section of `config.ini`. Changes apply the next time you connect.
+Add any of these to the `[vpn]` section of `config.ini`. Changes apply the next time you
+connect.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -81,7 +90,8 @@ Add any of these to the `[vpn]` section of `config.ini`. Changes apply the next 
 
 ## Troubleshooting
 
-If a connection fails, check `~/.config/gplatch/gplatch.log` for the details.
+If a connection fails, choose **Open log** from the tray menu, or check
+`~/.config/gplatch/gplatch.log`, for the details.
 
 ## Permissions
 

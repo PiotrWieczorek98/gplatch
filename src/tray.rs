@@ -2,12 +2,12 @@
 
 use std::sync::mpsc::Sender;
 
-use ksni::menu::{MenuItem, StandardItem};
+use ksni::menu::{CheckmarkItem, MenuItem, StandardItem};
 use ksni::{Category, Icon, ToolTip, Tray};
 
-use crate::config::config_dir;
+use crate::config::{autostart_override, config_dir, set_start_on_login};
 use crate::vpn::State;
-use crate::{APP_NAME, CONFIG_FILE, LOG_FILE, open};
+use crate::{APP_NAME, CONFIG_FILE, LOG_FILE, notify, open};
 
 const ICON_SIZE: i32 = 64;
 
@@ -20,6 +20,7 @@ pub struct VpnTray {
     pub state: State,
     /// Details of the current connection, shown under the status.
     pub info: Vec<String>,
+    pub start_on_login: bool,
     pub tx: Sender<Cmd>,
 }
 
@@ -114,6 +115,18 @@ impl Tray for VpnTray {
                 ..Default::default()
             }
             .into(),
+            CheckmarkItem {
+                label: "Start on login".into(),
+                checked: self.start_on_login,
+                activate: Box::new(|tray: &mut Self| {
+                    match set_start_on_login(&autostart_override(), !tray.start_on_login) {
+                        Ok(()) => tray.start_on_login = !tray.start_on_login,
+                        Err(err) => notify(format!("Could not change start on login: {err}")),
+                    }
+                }),
+                ..Default::default()
+            }
+            .into(),
             MenuItem::Separator,
             StandardItem {
                 label: "Quit".into(),
@@ -138,6 +151,7 @@ mod tests {
             let tray = VpnTray {
                 state,
                 info: vec![],
+                start_on_login: true,
                 tx: channel().0,
             };
             assert_eq!(

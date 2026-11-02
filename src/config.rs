@@ -1,6 +1,8 @@
 //! Reads the user configuration.
 
-use std::path::PathBuf;
+use std::fs;
+use std::io::{self, ErrorKind};
+use std::path::{Path, PathBuf};
 
 use crate::APP_NAME;
 
@@ -52,6 +54,33 @@ pub fn config_dir() -> PathBuf {
     base.join(APP_NAME)
 }
 
+/// The per-user autostart entry, which overrides the system-wide one of the same name.
+pub fn autostart_override() -> PathBuf {
+    config_dir()
+        .with_file_name("autostart")
+        .join(format!("{APP_NAME}.desktop"))
+}
+
+pub fn starts_on_login(entry: &Path) -> bool {
+    !fs::read_to_string(entry)
+        .is_ok_and(|text| text.lines().any(|line| line.trim() == "Hidden=true"))
+}
+
+/// Hides the system-wide autostart entry for this user, or removes that override.
+pub fn set_start_on_login(entry: &Path, on: bool) -> io::Result<()> {
+    if on {
+        match fs::remove_file(entry) {
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+            done => done,
+        }
+    } else {
+        fs::create_dir_all(entry.parent().expect("entry is inside a directory"))?;
+        // A full copy, like KDE writes, stays valid if a desktop settings app later flips Hidden.
+        let system = include_str!("../packaging/gplatch.desktop");
+        fs::write(entry, format!("{system}Hidden=true\n"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,6 +102,21 @@ mod tests {
                 auto_reconnect: true,
             }
         );
+    }
+
+    #[test]
+    fn start_on_login_round_trip() {
+        let dir = std::env::temp_dir().join(format!("{APP_NAME}-autostart-{}", std::process::id()));
+        let entry = dir.join("autostart").join("gplatch.desktop");
+        assert!(starts_on_login(&entry), "no override");
+        set_start_on_login(&entry, false).unwrap();
+        assert!(!starts_on_login(&entry), "hidden");
+        let copy = fs::read_to_string(&entry).unwrap();
+        assert!(copy.contains("Exec=gplatch") && copy.ends_with("\nHidden=true\n"));
+        set_start_on_login(&entry, true).unwrap();
+        set_start_on_login(&entry, true).unwrap();
+        assert!(starts_on_login(&entry), "override removed");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

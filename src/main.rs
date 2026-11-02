@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use ksni::blocking::TrayMethods;
 
-use config::{Config, config_dir, parse_config};
+use config::{Config, autostart_override, config_dir, parse_config, starts_on_login};
 use tray::{Cmd, VpnTray};
 use vpn::{State, Vpn};
 
@@ -204,6 +204,7 @@ fn main() {
     let tray = VpnTray {
         state: State::Off,
         info: vec![],
+        start_on_login: starts_on_login(&autostart_override()),
         tx,
     };
     // At login the tray can start before the panel. Assuming availability makes it
