@@ -4,7 +4,7 @@ pkgrel=6
 pkgdesc='Free system tray client for GlobalProtect VPNs, built on gpclient'
 arch=(x86_64)
 license=(GPL-3.0-only)
-depends=(gcc-libs glibc globalprotect-openconnect libnotify polkit)
+depends=(gcc-libs glibc globalprotect-openconnect iproute2 libnotify polkit xdg-utils)
 makedepends=(cargo)
 options=(!debug)
 
