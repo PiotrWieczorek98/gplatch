@@ -4,7 +4,8 @@ mod config;
 mod tray;
 mod vpn;
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use ksni::blocking::TrayMethods;
 
-use config::{config_dir, parse_config};
+use config::{Config, config_dir, parse_config};
 use tray::{Cmd, VpnTray};
 use vpn::{State, Vpn};
 
@@ -23,6 +24,8 @@ const LOG_FILE: &str = "gplatch.log";
 const POLL: Duration = Duration::from_secs(1);
 /// How often the connection details refresh while connected.
 const INFO_REFRESH: Duration = Duration::from_secs(60);
+/// A connection that drops sooner than this is not retried, so a failing setup cannot loop.
+const MIN_UPTIME_FOR_RECONNECT: Duration = Duration::from_secs(60);
 
 fn notify(body: String) {
     thread::spawn(move || {
@@ -35,13 +38,64 @@ fn notify(body: String) {
     });
 }
 
+/// Opens the file in the default app, creating it empty if it does not exist yet.
 fn open(path: PathBuf) {
     thread::spawn(move || {
+        // Owner-only, like the log, since both files can reveal the portal and account.
+        let created = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(&path);
+        if let Err(err) = created {
+            notify(format!("Could not create {}: {err}", path.display()));
+            return;
+        }
         let opened = Command::new("xdg-open").arg(&path).status();
         if !opened.is_ok_and(|status| status.success()) {
             notify(format!("Could not open {}", path.display()));
         }
     });
+}
+
+/// Reads the config, warning when no portal is set.
+fn load_config() -> Config {
+    let path = config_dir().join(CONFIG_FILE);
+    let cfg = parse_config(&fs::read_to_string(&path).unwrap_or_default());
+    if cfg.portal.is_empty() {
+        notify(format!(
+            "No portal set. Add \"portal = your.host\" to {}.",
+            path.display()
+        ));
+    }
+    cfg
+}
+
+/// Connects with the current config, so edits apply without a restart.
+fn connect(vpn: &mut Vpn) {
+    vpn.cfg = load_config();
+    if !vpn.cfg.portal.is_empty() {
+        vpn.connect();
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Down {
+    Ignore,
+    Alert,
+    Reconnect,
+}
+
+/// Decides how to react when the tunnel goes from `last` to off.
+fn on_down(last: State, stopping: bool, auto_reconnect: bool, uptime: Duration) -> Down {
+    if last == State::Off || stopping {
+        Down::Ignore
+    } else if auto_reconnect && last == State::Connected && uptime >= MIN_UPTIME_FOR_RECONNECT {
+        // Only a drop of a working tunnel is retried; a failed login stays failed.
+        Down::Reconnect
+    } else {
+        Down::Alert
+    }
 }
 
 fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>) {
@@ -59,12 +113,13 @@ fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>)
     let mut last = vpn.state();
     refresh(&vpn, last);
     let mut refreshed = Instant::now();
+    let mut connected_at = Instant::now();
     if vpn.cfg.connect_on_start && !vpn.cfg.portal.is_empty() && last == State::Off {
         vpn.connect();
     }
     loop {
         match rx.recv_timeout(POLL) {
-            Ok(Cmd::Toggle) if last == State::Off => vpn.connect(),
+            Ok(Cmd::Toggle) if last == State::Off => connect(&mut vpn),
             Ok(Cmd::Toggle) => vpn.disconnect(),
             Ok(Cmd::Quit) => {
                 if last != State::Off {
@@ -83,11 +138,26 @@ fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>)
             vpn.disconnect();
         }
         if state == State::Off {
-            if last != State::Off && !vpn.stopping {
-                notify(format!("VPN is down, see {}", vpn.log_path.display()));
-            }
+            let down = on_down(
+                last,
+                vpn.stopping,
+                vpn.cfg.auto_reconnect,
+                connected_at.elapsed(),
+            );
             vpn.stopping = false;
             vpn.cancel_pending = false;
+            match down {
+                Down::Ignore => {}
+                Down::Alert => notify(format!("VPN is down, see {}", vpn.log_path.display())),
+                // shortcut: retries at once; if the network is not back yet the login fails and alerts.
+                Down::Reconnect => {
+                    notify("VPN dropped, reconnecting".into());
+                    connect(&mut vpn);
+                }
+            }
+        }
+        if state == State::Connected && last != State::Connected {
+            connected_at = Instant::now();
         }
         // Periodic refreshes keep the uptime current and pick up session info logged late.
         if state != last || (state == State::Connected && refreshed.elapsed() >= INFO_REFRESH) {
@@ -129,20 +199,10 @@ fn main() {
         return;
     }
 
-    let config_path = dir.join(CONFIG_FILE);
-    let cfg = parse_config(&fs::read_to_string(&config_path).unwrap_or_default());
-    let can_connect = !cfg.portal.is_empty();
-    if !can_connect {
-        notify(format!(
-            "No portal set. Add \"portal = your.host\" to {} and restart.",
-            config_path.display()
-        ));
-    }
-
+    let cfg = load_config();
     let (tx, rx) = channel();
     let tray = VpnTray {
         state: State::Off,
-        can_connect,
         info: vec![],
         tx,
     };
@@ -158,4 +218,45 @@ fn main() {
 
     let vpn = Vpn::new(cfg, dir.join(LOG_FILE));
     run(vpn, rx, handle);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reacts_to_the_tunnel_going_down() {
+        let long = MIN_UPTIME_FOR_RECONNECT;
+        let short = Duration::ZERO;
+        assert_eq!(
+            on_down(State::Off, false, true, long),
+            Down::Ignore,
+            "already off"
+        );
+        assert_eq!(
+            on_down(State::Connected, true, true, long),
+            Down::Ignore,
+            "user disconnected"
+        );
+        assert_eq!(
+            on_down(State::Connected, false, false, long),
+            Down::Alert,
+            "reconnect disabled"
+        );
+        assert_eq!(
+            on_down(State::Connected, false, true, long),
+            Down::Reconnect,
+            "dropped"
+        );
+        assert_eq!(
+            on_down(State::Connected, false, true, short),
+            Down::Alert,
+            "dropped at once"
+        );
+        assert_eq!(
+            on_down(State::Connecting, false, true, long),
+            Down::Alert,
+            "login failed"
+        );
+    }
 }

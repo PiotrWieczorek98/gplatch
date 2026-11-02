@@ -18,7 +18,6 @@ pub enum Cmd {
 
 pub struct VpnTray {
     pub state: State,
-    pub can_connect: bool,
     /// Details of the current connection, shown under the status.
     pub info: Vec<String>,
     pub tx: Sender<Cmd>,
@@ -98,7 +97,6 @@ impl Tray for VpnTray {
             MenuItem::Separator,
             StandardItem {
                 label: label.into(),
-                enabled: self.can_connect || self.state != State::Off,
                 activate: Box::new(|tray: &mut Self| drop(tray.tx.send(Cmd::Toggle))),
                 ..Default::default()
             }
@@ -139,7 +137,6 @@ mod tests {
         for state in [State::Off, State::Connecting, State::Connected] {
             let tray = VpnTray {
                 state,
-                can_connect: true,
                 info: vec![],
                 tx: channel().0,
             };

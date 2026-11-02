@@ -11,6 +11,7 @@ pub struct Config {
     pub fix_openssl: bool,
     pub ignore_tls_errors: bool,
     pub connect_on_start: bool,
+    pub auto_reconnect: bool,
 }
 
 pub fn parse_config(text: &str) -> Config {
@@ -20,6 +21,7 @@ pub fn parse_config(text: &str) -> Config {
         fix_openssl: true,
         ignore_tls_errors: false,
         connect_on_start: false,
+        auto_reconnect: false,
     };
     for line in text.lines() {
         let Some((key, value)) = line.split_once('=') else {
@@ -33,6 +35,7 @@ pub fn parse_config(text: &str) -> Config {
             "fix_openssl" => cfg.fix_openssl = flag,
             "ignore_tls_errors" => cfg.ignore_tls_errors = flag,
             "connect_on_start" => cfg.connect_on_start = flag,
+            "auto_reconnect" => cfg.auto_reconnect = flag,
             _ => {}
         }
     }
@@ -57,7 +60,7 @@ mod tests {
     fn parses_existing_config_format() {
         let cfg = parse_config(
             "[vpn]\nportal = vpn.example.com\nas_gateway = true\n# fix_openssl = false\n\
-             fix_openssl = no\nignore_tls_errors = True\nconnect_on_start = yes\n\n[connection]\npoll_interval = 10\n",
+             fix_openssl = no\nignore_tls_errors = True\nconnect_on_start = yes\nauto_reconnect = on\n\n[connection]\npoll_interval = 10\n",
         );
         assert_eq!(
             cfg,
@@ -67,6 +70,7 @@ mod tests {
                 fix_openssl: false,
                 ignore_tls_errors: true,
                 connect_on_start: true,
+                auto_reconnect: true,
             }
         );
     }
@@ -77,6 +81,6 @@ mod tests {
         assert!(
             cfg.portal.is_empty() && cfg.fix_openssl && !cfg.as_gateway && !cfg.ignore_tls_errors
         );
-        assert!(!cfg.connect_on_start);
+        assert!(!cfg.connect_on_start && !cfg.auto_reconnect);
     }
 }

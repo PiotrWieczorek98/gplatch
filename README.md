@@ -68,13 +68,14 @@ connected, it changes to **Disconnect**. Choosing **Quit** also disconnects the 
 
 ## Settings
 
-Add any of these to the `[vpn]` section of `config.ini`, then restart GPLatch.
+Add any of these to the `[vpn]` section of `config.ini`. Changes apply the next time you connect.
 
 | Setting | Default | What it does |
 |---|---|---|
 | `portal` | none | The address of your VPN portal or gateway |
 | `as_gateway` | `false` | Connect to the address as a gateway instead of a portal |
 | `connect_on_start` | `false` | Start connecting as soon as GPLatch launches |
+| `auto_reconnect` | `false` | Reconnect when a tunnel that was up for at least a minute drops |
 | `fix_openssl` | `true` | Allow servers that need legacy OpenSSL compatibility |
 | `ignore_tls_errors` | `false` | Ignore TLS certificate errors. Only use this if you trust the server. |
 
