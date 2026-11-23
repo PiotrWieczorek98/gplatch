@@ -42,6 +42,8 @@ cargo build --release
 sudo install -Dm755 target/release/gplatch -t /usr/local/bin
 sudo install -Dm644 packaging/49-gplatch.rules -t /etc/polkit-1/rules.d
 sudo install -Dm644 packaging/gplatch.desktop -t /etc/xdg/autostart
+sudo install -Dm644 packaging/gplatch.desktop packaging/gpauth.desktop -t /usr/share/applications
+sudo install -Dm644 packaging/icons/gplatch.svg -t /usr/share/icons/hicolor/scalable/apps
 ```
 
 If your distribution has no `wheel` group, such as Debian and Ubuntu, GPLatch asks for
@@ -64,7 +66,8 @@ log in. To stop that, untick **Start on login** in the tray menu.
 
 ## Usage
 
-Click the tray icon and choose **Connect**, then sign in using the window that opens.
+Click the tray icon and choose **Connect**, then sign in using the window that opens. If
+you set `browser`, the sign-in page opens in your browser instead.
 
 While it is connecting, the same menu item changes to **Cancel**. Once you are
 connected, it changes to **Disconnect**. Choosing **Quit** also disconnects the VPN.
@@ -77,8 +80,9 @@ the session expires.
 
 ## Settings
 
-Add any of these to the `[vpn]` section of `config.ini`. Changes apply the next time you
-connect.
+These go in the `[vpn]` section of `config.ini`. A config created with **Open config**
+already lists them all. Changes apply the next time you connect, except
+`connect_on_start`, which applies the next time GPLatch starts.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -95,6 +99,12 @@ connect.
 If a connection fails, choose **Open log** from the tray menu, or check
 `~/.config/gplatch/gplatch.log`, for the details.
 
+If your sign-in needs a desktop app, the built-in login window may not be able to reach
+it. For example, with Okta FastPass the **Open Okta Verify** button does nothing or the
+sign-in keeps asking again. Set `browser = default` to sign in through your browser. If
+the browser asks whether the site may access apps or devices on your local network,
+allow it.
+
 ## Permissions
 
 A VPN needs root access to set up its network connection. GPLatch keeps that as small
@@ -105,6 +115,18 @@ as it can:
 - The included polkit rule lets `wheel` users in an active local session run only the
   connect and disconnect commands GPLatch needs, without a password. Anything else
   gets the normal password prompt.
+
+## Releasing
+
+From a clean, up-to-date `main`, run:
+
+```sh
+scripts/gplatch-update patch   # or minor, major, or an exact version such as 0.3.0
+```
+
+It updates the version in `Cargo.toml`, `Cargo.lock` and `packaging/PKGBUILD`, runs the
+tests and clippy, and asks before it commits, tags and pushes. The pushed tag starts the
+release workflow, which builds the package and publishes it on the releases page.
 
 ## License
 
