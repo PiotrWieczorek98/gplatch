@@ -5,6 +5,7 @@ mod tray;
 mod vpn;
 
 use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -38,15 +39,20 @@ fn notify(body: String) {
     });
 }
 
-/// Opens the file in the default app, creating it empty if it does not exist yet.
-fn open(path: PathBuf) {
+/// Opens the file in the default app, creating it with `initial` if it does not exist yet.
+fn open(path: PathBuf, initial: &'static str) {
     thread::spawn(move || {
         // Owner-only, like the log, since both files can reveal the portal and account.
-        let created = OpenOptions::new()
-            .create(true)
-            .append(true)
+        let created = match OpenOptions::new()
+            .write(true)
+            .create_new(true)
             .mode(0o600)
-            .open(&path);
+            .open(&path)
+        {
+            Ok(mut file) => file.write_all(initial.as_bytes()),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+            Err(err) => Err(err),
+        };
         if let Err(err) = created {
             notify(format!("Could not create {}: {err}", path.display()));
             return;

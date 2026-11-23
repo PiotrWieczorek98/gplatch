@@ -38,6 +38,9 @@ fn auth_args(cfg: &Config) -> Vec<&str> {
     if cfg.as_gateway {
         args.push("--gateway");
     }
+    if !cfg.browser.is_empty() {
+        args.extend(["--browser", &cfg.browser]);
+    }
     args.push(&cfg.portal);
     args
 }
@@ -308,6 +311,22 @@ mod tests {
             auth_args(&cfg),
             ["--fix-openssl", "--ignore-tls-errors", "--gateway", "p"]
         );
+        let cfg = Config {
+            browser: "default".into(),
+            ..cfg
+        };
+        assert_eq!(
+            auth_args(&cfg),
+            [
+                "--fix-openssl",
+                "--ignore-tls-errors",
+                "--gateway",
+                "--browser",
+                "default",
+                "p"
+            ]
+        );
+        assert_eq!(connect_args(&cfg)[2..4], ["connect", "--cookie-on-stdin"]);
     }
 
     #[test]

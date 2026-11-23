@@ -14,7 +14,28 @@ pub struct Config {
     pub ignore_tls_errors: bool,
     pub connect_on_start: bool,
     pub auto_reconnect: bool,
+    pub browser: String,
 }
+
+/// Written by "Open config" when no config exists, so every setting is visible. Every value is a default.
+pub const DEFAULT_CONFIG: &str = "\
+[vpn]
+# Address of your VPN portal or gateway (required)
+portal =
+# Connect to the address as a gateway instead of a portal
+as_gateway = false
+# Start connecting as soon as GPLatch launches
+connect_on_start = false
+# Reconnect when a tunnel that was up for at least a minute drops
+auto_reconnect = false
+# Allow servers that need legacy OpenSSL compatibility
+fix_openssl = true
+# Ignore TLS certificate errors. Only use this if you trust the server.
+ignore_tls_errors = false
+# Sign in through an external browser instead of the built-in window:
+# default, firefox or chrome. Empty uses the built-in window.
+browser =
+";
 
 pub fn parse_config(text: &str) -> Config {
     let mut cfg = Config {
@@ -24,6 +45,7 @@ pub fn parse_config(text: &str) -> Config {
         ignore_tls_errors: false,
         connect_on_start: false,
         auto_reconnect: false,
+        browser: String::new(),
     };
     for line in text.lines() {
         let Some((key, value)) = line.split_once('=') else {
@@ -38,6 +60,7 @@ pub fn parse_config(text: &str) -> Config {
             "ignore_tls_errors" => cfg.ignore_tls_errors = flag,
             "connect_on_start" => cfg.connect_on_start = flag,
             "auto_reconnect" => cfg.auto_reconnect = flag,
+            "browser" => cfg.browser = value.to_string(),
             _ => {}
         }
     }
@@ -89,7 +112,7 @@ mod tests {
     fn parses_existing_config_format() {
         let cfg = parse_config(
             "[vpn]\nportal = vpn.example.com\nas_gateway = true\n# fix_openssl = false\n\
-             fix_openssl = no\nignore_tls_errors = True\nconnect_on_start = yes\nauto_reconnect = on\n\n[connection]\npoll_interval = 10\n",
+             fix_openssl = no\nignore_tls_errors = True\nconnect_on_start = yes\nauto_reconnect = on\nbrowser = default\n\n[connection]\npoll_interval = 10\n",
         );
         assert_eq!(
             cfg,
@@ -100,6 +123,7 @@ mod tests {
                 ignore_tls_errors: true,
                 connect_on_start: true,
                 auto_reconnect: true,
+                browser: "default".into(),
             }
         );
     }
@@ -125,6 +149,11 @@ mod tests {
         assert!(
             cfg.portal.is_empty() && cfg.fix_openssl && !cfg.as_gateway && !cfg.ignore_tls_errors
         );
-        assert!(!cfg.connect_on_start && !cfg.auto_reconnect);
+        assert!(!cfg.connect_on_start && !cfg.auto_reconnect && cfg.browser.is_empty());
+    }
+
+    #[test]
+    fn default_config_file_matches_defaults() {
+        assert_eq!(parse_config(DEFAULT_CONFIG), parse_config(""));
     }
 }

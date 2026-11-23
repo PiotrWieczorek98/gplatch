@@ -5,7 +5,7 @@ use std::sync::mpsc::Sender;
 use ksni::menu::{CheckmarkItem, MenuItem, StandardItem};
 use ksni::{Category, Icon, ToolTip, Tray};
 
-use crate::config::{autostart_override, config_dir, set_start_on_login};
+use crate::config::{DEFAULT_CONFIG, autostart_override, config_dir, set_start_on_login};
 use crate::vpn::State;
 use crate::{APP_NAME, CONFIG_FILE, LOG_FILE, notify, open};
 
@@ -105,13 +105,15 @@ impl Tray for VpnTray {
             MenuItem::Separator,
             StandardItem {
                 label: "Open config".into(),
-                activate: Box::new(|_: &mut Self| open(config_dir().join(CONFIG_FILE))),
+                activate: Box::new(|_: &mut Self| {
+                    open(config_dir().join(CONFIG_FILE), DEFAULT_CONFIG)
+                }),
                 ..Default::default()
             }
             .into(),
             StandardItem {
                 label: "Open log".into(),
-                activate: Box::new(|_: &mut Self| open(config_dir().join(LOG_FILE))),
+                activate: Box::new(|_: &mut Self| open(config_dir().join(LOG_FILE), "")),
                 ..Default::default()
             }
             .into(),

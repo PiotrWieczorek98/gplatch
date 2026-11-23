@@ -51,7 +51,8 @@ group, such as `sudo`.
 ## Setup
 
 Create `~/.config/gplatch/config.ini` with your VPN address, or choose **Open config** from
-the tray menu to create and open it:
+the tray menu. If the file does not exist yet, it is created listing every setting at its
+default value, so you only need to fill in the portal:
 
 ```ini
 [vpn]
@@ -87,6 +88,7 @@ connect.
 | `auto_reconnect` | `false` | Reconnect when a tunnel that was up for at least a minute drops |
 | `fix_openssl` | `true` | Allow servers that need legacy OpenSSL compatibility |
 | `ignore_tls_errors` | `false` | Ignore TLS certificate errors. Only use this if you trust the server. |
+| `browser` | none | Sign in through an external browser instead of the built-in window, e.g. `default`, `firefox` or `chrome`. Use it when your sign-in needs a desktop app, such as Okta FastPass. |
 
 ## Troubleshooting
 
