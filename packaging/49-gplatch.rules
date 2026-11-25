@@ -1,6 +1,8 @@
 // Allows wheel users in an active local session to run the gpclient commands used by
 // GPLatch without a password. Other commands receive the default polkit prompt.
-// The connect pattern must match connect_args() in src/vpn.rs.
+// The connect pattern must match connect_args() in src/vpn.rs. The only script allowed is
+// vpn-slice with plain address and hostname arguments: openconnect runs the script through
+// a root shell, so no shell syntax or options may get through.
 polkit.addRule(function(action, subject) {
     if (action.id != "org.freedesktop.policykit.exec" ||
         action.lookup("program") != "/usr/bin/gpclient" ||
@@ -8,7 +10,7 @@ polkit.addRule(function(action, subject) {
         return polkit.Result.NOT_HANDLED;
     }
     var command = action.lookup("command_line");
-    var connect = /^\/usr\/bin\/gpclient( --fix-openssl)?( --ignore-tls-errors)? connect --cookie-on-stdin( --as-gateway)? [A-Za-z0-9][A-Za-z0-9.:-]*$/;
+    var connect = /^\/usr\/bin\/gpclient( --fix-openssl)?( --ignore-tls-errors)? connect --cookie-on-stdin( --as-gateway)?( --script \/usr\/bin\/vpn-slice( [A-Za-z0-9][A-Za-z0-9.:\/-]*)+)? [A-Za-z0-9][A-Za-z0-9.:-]*$/;
     if (connect.test(command) || command == "/usr/bin/gpclient disconnect") {
         return polkit.Result.YES;
     }

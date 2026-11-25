@@ -55,6 +55,10 @@ fn connect_args(cfg: &Config) -> Vec<&str> {
     if cfg.as_gateway {
         args.push("--as-gateway");
     }
+    // The script runs as root, so the polkit rule only skips the password for `split`.
+    if !cfg.script.is_empty() {
+        args.extend(["--script", &cfg.script]);
+    }
     args.push(&cfg.portal);
     args
 }
@@ -327,6 +331,14 @@ mod tests {
             ]
         );
         assert_eq!(connect_args(&cfg)[2..4], ["connect", "--cookie-on-stdin"]);
+        let cfg = Config {
+            script: "vpn-slice 10.0.0.0/8".into(),
+            ..cfg
+        };
+        assert_eq!(
+            connect_args(&cfg)[4..],
+            ["--as-gateway", "--script", "vpn-slice 10.0.0.0/8", "p"]
+        );
     }
 
     #[test]

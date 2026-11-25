@@ -15,6 +15,7 @@ pub struct Config {
     pub connect_on_start: bool,
     pub auto_reconnect: bool,
     pub browser: String,
+    pub script: String,
 }
 
 /// Written by "Open config" when no config exists, so every setting is visible. Every value is a default.
@@ -35,6 +36,12 @@ ignore_tls_errors = false
 # Sign in through an external browser instead of the built-in window:
 # default, firefox or chrome. Empty uses the built-in window.
 browser =
+# Route only these subnets and hosts through the VPN, separated by spaces or commas,
+# for example: 10.0.0.0/8, intranet.example.com. Needs vpn-slice. Empty routes everything.
+split =
+# Run this vpnc-script instead of the default one. Asks for your password on connect.
+# Ignored when split is set.
+script =
 ";
 
 pub fn parse_config(text: &str) -> Config {
@@ -46,7 +53,9 @@ pub fn parse_config(text: &str) -> Config {
         connect_on_start: false,
         auto_reconnect: false,
         browser: String::new(),
+        script: String::new(),
     };
+    let mut split: Vec<&str> = vec![];
     for line in text.lines() {
         let Some((key, value)) = line.split_once('=') else {
             continue;
@@ -61,8 +70,18 @@ pub fn parse_config(text: &str) -> Config {
             "connect_on_start" => cfg.connect_on_start = flag,
             "auto_reconnect" => cfg.auto_reconnect = flag,
             "browser" => cfg.browser = value.to_string(),
+            "script" => cfg.script = value.to_string(),
+            "split" => {
+                split = value
+                    .split([',', ' ', '\t'])
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            }
             _ => {}
         }
+    }
+    if !split.is_empty() {
+        cfg.script = format!("/usr/bin/vpn-slice {}", split.join(" "));
     }
     cfg
 }
@@ -112,7 +131,7 @@ mod tests {
     fn parses_existing_config_format() {
         let cfg = parse_config(
             "[vpn]\nportal = vpn.example.com\nas_gateway = true\n# fix_openssl = false\n\
-             fix_openssl = no\nignore_tls_errors = True\nconnect_on_start = yes\nauto_reconnect = on\nbrowser = default\n\n[connection]\npoll_interval = 10\n",
+             fix_openssl = no\nignore_tls_errors = True\nconnect_on_start = yes\nauto_reconnect = on\nbrowser = default\nscript = vpn-slice 10.0.0.0/8 a.example\n\n[connection]\npoll_interval = 10\n",
         );
         assert_eq!(
             cfg,
@@ -124,6 +143,7 @@ mod tests {
                 connect_on_start: true,
                 auto_reconnect: true,
                 browser: "default".into(),
+                script: "vpn-slice 10.0.0.0/8 a.example".into(),
             }
         );
     }
@@ -150,6 +170,17 @@ mod tests {
             cfg.portal.is_empty() && cfg.fix_openssl && !cfg.as_gateway && !cfg.ignore_tls_errors
         );
         assert!(!cfg.connect_on_start && !cfg.auto_reconnect && cfg.browser.is_empty());
+        assert!(cfg.script.is_empty());
+    }
+
+    #[test]
+    fn split_becomes_a_vpn_slice_script() {
+        let cfg = parse_config("script = /x\nsplit = 172.27.0.0/16,  10.0.0.0/8 ,db.example.com\n");
+        assert_eq!(
+            cfg.script,
+            "/usr/bin/vpn-slice 172.27.0.0/16 10.0.0.0/8 db.example.com"
+        );
+        assert_eq!(parse_config("script = /x\nsplit =\n").script, "/x");
     }
 
     #[test]
