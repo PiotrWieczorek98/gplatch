@@ -6,7 +6,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::config::Config;
 use crate::notify;
@@ -111,10 +111,12 @@ fn hours_minutes(time: Duration) -> String {
     format!("{}h {:02}m", mins / 60, mins % 60)
 }
 
-/// Reads the local expiry time gpclient logs as `user_expires=<epoch> (<date> <time>, in ...)`.
-fn session_expiry(log: &str) -> Option<&str> {
+/// Reads the expiry gpclient logs as `user_expires=<epoch> (<date> <time>, in ...)`,
+/// returning the epoch and the local time.
+fn session_expiry(log: &str) -> Option<(u64, &str)> {
     let (_, rest) = log.rsplit_once("user_expires=")?;
-    rest.split_once('(')?.1.split(',').next()
+    let (epoch, rest) = rest.split_once('(')?;
+    Some((epoch.trim().parse().ok()?, rest.split(',').next()?))
 }
 
 fn has_exited(child: &mut Option<Child>) -> bool {
@@ -267,11 +269,21 @@ impl Vpn {
             .ok()
             .and_then(|since| since.elapsed().ok())
             .map(|up| format!("Connected for {}", hours_minutes(up)));
-        let expires = session_expiry(&log).map(|at| format!("Session expires {at}"));
+        let expires = session_expiry(&log).map(|(_, at)| format!("Session expires {at}"));
         [gateway, ip, uptime, expires]
             .into_iter()
             .flatten()
             .collect()
+    }
+
+    /// Time left before the session expires. Call only while connected.
+    pub fn session_left(&self) -> Option<Duration> {
+        let log = fs::read_to_string(&self.log_path).ok()?;
+        let (epoch, _) = session_expiry(&log)?;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .ok()?;
+        Duration::from_secs(epoch).checked_sub(now)
     }
 
     /// Waits up to five seconds, keeping a stuck gpclient from blocking tray shutdown.
@@ -352,7 +364,10 @@ mod tests {
     fn parses_session_info() {
         let log = "VPN session info: lifetime_secs=2592000 (30days), user_expires=1796208791 \
                    (2026-12-02 11:53:11, in 29days 23h 59m 59s), lifetime_warning_prior=1800";
-        assert_eq!(session_expiry(log), Some("2026-12-02 11:53:11"));
+        assert_eq!(
+            session_expiry(log),
+            Some((1796208791, "2026-12-02 11:53:11"))
+        );
         assert_eq!(session_expiry("no session"), None);
         assert_eq!(
             hours_minutes(Duration::from_secs(26 * 3600 + 5 * 60 + 59)),

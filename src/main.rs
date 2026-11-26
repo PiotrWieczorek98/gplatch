@@ -27,6 +27,11 @@ const POLL: Duration = Duration::from_secs(1);
 const INFO_REFRESH: Duration = Duration::from_secs(60);
 /// A connection that drops sooner than this is not retried, so a failing setup cannot loop.
 const MIN_UPTIME_FOR_RECONNECT: Duration = Duration::from_secs(60);
+/// Reconnect attempts after a drop, spaced out so the network can come back after sleep.
+const RECONNECT_TRIES: u32 = 3;
+const RECONNECT_DELAY: Duration = Duration::from_secs(10);
+/// How long before the session expires to warn, so the user can reconnect at a good moment.
+const EXPIRY_WARNING: Duration = Duration::from_secs(10 * 60);
 
 fn notify(body: String) {
     thread::spawn(move || {
@@ -93,11 +98,21 @@ enum Down {
 }
 
 /// Decides how to react when the tunnel goes from `last` to off.
-fn on_down(last: State, stopping: bool, auto_reconnect: bool, uptime: Duration) -> Down {
+///
+/// `retrying` is true while reconnect attempts remain after a drop.
+fn on_down(
+    last: State,
+    stopping: bool,
+    auto_reconnect: bool,
+    uptime: Duration,
+    retrying: bool,
+) -> Down {
     if last == State::Off || stopping {
         Down::Ignore
-    } else if auto_reconnect && last == State::Connected && uptime >= MIN_UPTIME_FOR_RECONNECT {
-        // Only a drop of a working tunnel is retried; a failed login stays failed.
+    } else if auto_reconnect
+        && (retrying || last == State::Connected && uptime >= MIN_UPTIME_FOR_RECONNECT)
+    {
+        // Only a drop of a working tunnel starts retries; a failed first login stays failed.
         Down::Reconnect
     } else {
         Down::Alert
@@ -120,13 +135,24 @@ fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>)
     refresh(&vpn, last);
     let mut refreshed = Instant::now();
     let mut connected_at = Instant::now();
+    let mut retries_left = 0;
+    let mut retry_at: Option<Instant> = None;
+    let mut expiry_warned = false;
     if vpn.cfg.connect_on_start && !vpn.cfg.portal.is_empty() && last == State::Off {
         vpn.connect();
     }
     loop {
         match rx.recv_timeout(POLL) {
-            Ok(Cmd::Toggle) if last == State::Off => connect(&mut vpn),
-            Ok(Cmd::Toggle) => vpn.disconnect(),
+            Ok(Cmd::Toggle) => {
+                // A manual choice ends any pending reconnect.
+                retries_left = 0;
+                retry_at = None;
+                if last == State::Off {
+                    connect(&mut vpn);
+                } else {
+                    vpn.disconnect();
+                }
+            }
             Ok(Cmd::Quit) => {
                 if last != State::Off {
                     vpn.disconnect();
@@ -149,26 +175,47 @@ fn run(mut vpn: Vpn, rx: Receiver<Cmd>, handle: ksni::blocking::Handle<VpnTray>)
                 vpn.stopping,
                 vpn.cfg.auto_reconnect,
                 connected_at.elapsed(),
+                retries_left > 0,
             );
             vpn.stopping = false;
             vpn.cancel_pending = false;
             match down {
                 Down::Ignore => {}
                 Down::Alert => notify(format!("VPN is down, see {}", vpn.log_path.display())),
-                // shortcut: retries at once; if the network is not back yet the login fails and alerts.
                 Down::Reconnect => {
-                    notify("VPN dropped, reconnecting".into());
-                    connect(&mut vpn);
+                    if retries_left == 0 {
+                        retries_left = RECONNECT_TRIES;
+                        notify("VPN dropped, reconnecting".into());
+                    }
+                    retries_left -= 1;
+                    retry_at = Some(Instant::now() + RECONNECT_DELAY);
                 }
             }
         }
+        if retry_at.is_some_and(|at| Instant::now() >= at) {
+            retry_at = None;
+            connect(&mut vpn);
+        }
         if state == State::Connected && last != State::Connected {
             connected_at = Instant::now();
+            retries_left = 0;
+            expiry_warned = false;
         }
         // Periodic refreshes keep the uptime current and pick up session info logged late.
         if state != last || (state == State::Connected && refreshed.elapsed() >= INFO_REFRESH) {
             refresh(&vpn, state);
             refreshed = Instant::now();
+            if state == State::Connected
+                && !expiry_warned
+                && vpn
+                    .session_left()
+                    .is_some_and(|left| left <= EXPIRY_WARNING)
+            {
+                expiry_warned = true;
+                notify(
+                    "VPN session expires in under 10 minutes. Reconnect to start a new one.".into(),
+                );
+            }
             last = state;
         }
     }
@@ -236,34 +283,44 @@ mod tests {
         let long = MIN_UPTIME_FOR_RECONNECT;
         let short = Duration::ZERO;
         assert_eq!(
-            on_down(State::Off, false, true, long),
+            on_down(State::Off, false, true, long, false),
             Down::Ignore,
             "already off"
         );
         assert_eq!(
-            on_down(State::Connected, true, true, long),
+            on_down(State::Connected, true, true, long, false),
             Down::Ignore,
             "user disconnected"
         );
         assert_eq!(
-            on_down(State::Connected, false, false, long),
+            on_down(State::Connected, false, false, long, false),
             Down::Alert,
             "reconnect disabled"
         );
         assert_eq!(
-            on_down(State::Connected, false, true, long),
+            on_down(State::Connected, false, true, long, false),
             Down::Reconnect,
             "dropped"
         );
         assert_eq!(
-            on_down(State::Connected, false, true, short),
+            on_down(State::Connected, false, true, short, false),
             Down::Alert,
             "dropped at once"
         );
         assert_eq!(
-            on_down(State::Connecting, false, true, long),
+            on_down(State::Connecting, false, true, long, false),
             Down::Alert,
             "login failed"
+        );
+        assert_eq!(
+            on_down(State::Connecting, false, true, short, true),
+            Down::Reconnect,
+            "reconnect attempt failed, tries left"
+        );
+        assert_eq!(
+            on_down(State::Connecting, true, true, short, true),
+            Down::Ignore,
+            "user cancelled a reconnect"
         );
     }
 }

@@ -78,6 +78,7 @@ connected, it changes to **Disconnect**. Choosing **Quit** also disconnects the 
 The top of the menu shows the connection status. While connected, it also shows the
 gateway, the IP address the VPN assigned you, how long you have been connected, and when
 the session expires.
+A notification warns you 10 minutes before the session expires.
 
 **Open config** and **Open log** open those files in your default app.
 
@@ -92,7 +93,7 @@ already lists them all. Changes apply the next time you connect, except
 | `portal` | none | The address of your VPN portal or gateway |
 | `as_gateway` | `false` | Connect to the address as a gateway instead of a portal |
 | `connect_on_start` | `false` | Start connecting as soon as GPLatch launches |
-| `auto_reconnect` | `false` | Reconnect when a tunnel that was up for at least a minute drops |
+| `auto_reconnect` | `false` | Reconnect when a tunnel that was up for at least a minute drops. Tries 3 times, 10 seconds apart. |
 | `fix_openssl` | `true` | Allow servers that need legacy OpenSSL compatibility |
 | `ignore_tls_errors` | `false` | Ignore TLS certificate errors. Only use this if you trust the server. |
 | `browser` | none | Sign in through an external browser instead of the built-in window, e.g. `default`, `firefox` or `chrome`. Use it when your sign-in needs a desktop app, such as Okta FastPass. |
