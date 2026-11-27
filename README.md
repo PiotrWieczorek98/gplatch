@@ -14,7 +14,14 @@
 
 ## Install
 
-Download the latest `.pkg.tar.zst` file from the
+On Arch-based distributions, install [`gplatch`](https://aur.archlinux.org/packages/gplatch)
+from the AUR with your AUR helper, for example:
+
+```sh
+yay -S gplatch
+```
+
+Or download the latest `.pkg.tar.zst` file from the
 [releases page](https://github.com/PiotrWieczorek98/gplatch/releases), then run:
 
 ```sh
@@ -151,18 +158,6 @@ as it can:
   connect and disconnect commands GPLatch needs, without a password. Anything else
   gets the normal password prompt, including connecting with a custom `script`, since
   the script runs as root.
-
-## Releasing
-
-From a clean, up-to-date `main`, run:
-
-```sh
-scripts/gplatch-update patch   # or minor, major, or an exact version such as 0.3.0
-```
-
-It updates the version in `Cargo.toml`, `Cargo.lock` and `packaging/PKGBUILD`, runs the
-tests and clippy, and asks before it commits, tags and pushes. The pushed tag starts the
-release workflow, which builds the package and publishes it on the releases page.
 
 ## License
 

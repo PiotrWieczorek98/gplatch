@@ -1,6 +1,6 @@
 pkgbase = gplatch
 	pkgdesc = Free system tray client for GlobalProtect VPNs, built on gpclient
-	pkgver = 0.4.0
+	pkgver = 1.0.0
 	pkgrel = 1
 	url = https://github.com/PiotrWieczorek98/gplatch
 	arch = x86_64
@@ -15,7 +15,7 @@ pkgbase = gplatch
 	depends = xdg-utils
 	optdepends = vpn-slice: split tunneling with the split setting
 	options = !debug
-	source = gplatch-0.4.0.tar.gz::https://github.com/PiotrWieczorek98/gplatch/archive/v0.4.0.tar.gz
-	sha256sums = 2183239b252da588e76951f885aa77d5c7e2330eb2a4cf7f15073bd77df7857c
+	source = gplatch-1.0.0.tar.gz::https://github.com/PiotrWieczorek98/gplatch/archive/v1.0.0.tar.gz
+	sha256sums = bec939f98806468ea74480c3d2b11876dd7f7506862967995c603311c44b0246
 
 pkgname = gplatch
