@@ -16,6 +16,8 @@ pub struct Config {
     pub auto_reconnect: bool,
     pub browser: String,
     pub script: String,
+    /// Keys the parser does not know, usually typos, so the user can be told.
+    pub unknown: Vec<String>,
 }
 
 /// Written by "Open config" when no config exists, so every setting is visible. Every value is a default.
@@ -54,9 +56,13 @@ pub fn parse_config(text: &str) -> Config {
         auto_reconnect: false,
         browser: String::new(),
         script: String::new(),
+        unknown: vec![],
     };
     let mut split: Vec<&str> = vec![];
     for line in text.lines() {
+        if line.trim_start().starts_with(['#', ';']) {
+            continue;
+        }
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
@@ -77,7 +83,7 @@ pub fn parse_config(text: &str) -> Config {
                     .filter(|s| !s.is_empty())
                     .collect()
             }
-            _ => {}
+            other => cfg.unknown.push(other.to_string()),
         }
     }
     if !split.is_empty() {
@@ -144,6 +150,7 @@ mod tests {
                 auto_reconnect: true,
                 browser: "default".into(),
                 script: "vpn-slice 10.0.0.0/8 a.example".into(),
+                unknown: vec!["poll_interval".into()],
             }
         );
     }
@@ -181,6 +188,13 @@ mod tests {
             "/usr/bin/vpn-slice 172.27.0.0/16 10.0.0.0/8 db.example.com"
         );
         assert_eq!(parse_config("script = /x\nsplit =\n").script, "/x");
+    }
+
+    #[test]
+    fn reports_unknown_keys() {
+        let cfg = parse_config("auto_reconect = true\n; portal_x = y\n  # b = c\n");
+        assert_eq!(cfg.unknown, ["auto_reconect"]);
+        assert!(!cfg.auto_reconnect);
     }
 
     #[test]

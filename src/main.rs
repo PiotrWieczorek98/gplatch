@@ -69,10 +69,17 @@ fn open(path: PathBuf, initial: &'static str) {
     });
 }
 
-/// Reads the config, warning when no portal is set.
+/// Reads the config, warning about unknown settings and a missing portal.
 fn load_config() -> Config {
     let path = config_dir().join(CONFIG_FILE);
     let cfg = parse_config(&fs::read_to_string(&path).unwrap_or_default());
+    if !cfg.unknown.is_empty() {
+        notify(format!(
+            "Unknown setting {} in {}. Check the spelling.",
+            cfg.unknown.join(", "),
+            path.display()
+        ));
+    }
     if cfg.portal.is_empty() {
         notify(format!(
             "No portal set. Add \"portal = your.host\" to {}.",
